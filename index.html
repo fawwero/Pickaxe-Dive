@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pickaxe Dive</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#14110f;--panel:#241c16;--edge:#6b5440;--fg:#f3e9d8;--mut:#a8957b;--acc:#f2c14e;--ok:#7bd05a;--bad:#e5533d;color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{height:100%;margin:0;background:radial-gradient(130% 100% at 50% 0%,#2a1f14 0%,#17110c 55%,#0a0705 100%);color:var(--fg);font-family:'Press Start 2P',ui-monospace,monospace;overflow:hidden}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;opacity:.5;background-image:radial-gradient(rgba(255,220,150,.05) 1px,transparent 1px);background-size:26px 26px}
+#wrap{position:relative;height:100%;aspect-ratio:9/16;max-width:100%;margin:0 auto}
+canvas{width:100%;height:100%;display:block;image-rendering:pixelated;touch-action:none;background:#1b1613}
+#ui{position:absolute;inset:0;display:none;overflow-y:auto;padding:14px 12px 24px;background:linear-gradient(#1f1710,#0d0907);font-size:9px;line-height:1.6;scrollbar-width:thin;scrollbar-color:var(--edge) transparent}
+#ui::-webkit-scrollbar{width:8px}
+#ui::-webkit-scrollbar-thumb{background:var(--edge);border-radius:4px}
+#ui::-webkit-scrollbar-track{background:transparent}
+#ui h1{font-size:15px;margin:4px 0 6px;color:var(--acc)}
+#ui h2{font-size:10px;margin:16px 0 6px;color:var(--mut)}
+.row{display:flex;align-items:center;gap:10px;background:linear-gradient(#2c231b,#211a14);border:2px solid var(--edge);border-radius:8px;padding:11px 10px;margin-bottom:7px;animation:pop .28s both}
+.row small{color:var(--mut);font-size:7px;display:block}
+.btn{font:inherit;font-size:9px;color:#1b1208;background:var(--acc);border:0;border-bottom:4px solid #9a7314;padding:11px 12px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.btn:disabled{background:#4a3f33;color:#8a7a66;border-color:#2d251d;cursor:default}
+.btn:focus-visible{outline:3px solid #fff}
+.go{display:block;width:100%;font-size:12px;padding:12px;margin:10px 0}
+.perk{display:block;width:100%;text-align:left;color:var(--fg);background:var(--panel);border:2px solid var(--acc);padding:12px;margin-bottom:8px;font:inherit;font-size:9px;line-height:1.6;cursor:pointer}
+.ok{color:var(--ok)}
+.perk{animation:pop .28s both;border-radius:8px}
+.ic{width:26px;height:26px;display:grid;place-items:center;font-size:15px;flex:none;border-radius:6px;background:#3a2e24}
+.ic.sp{width:18px;height:18px;margin:4px}
+.sel{border-color:var(--acc)}
+.sel .ic.sp,.row:hover .ic.sp{animation:spin 1s linear infinite}
+.bar{display:block;height:5px;background:#120e0b;margin-top:5px;border-radius:3px;overflow:hidden}
+.bar b{display:block;height:100%;background:var(--ok)}
+@keyframes pop{from{opacity:0;transform:scale(.96) translateY(6px)}to{opacity:1;transform:none}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.wh{position:relative;width:210px;height:210px;margin:18px auto}
+.wheel{width:100%;height:100%;border-radius:50%;border:4px solid #f3e9d8;box-sizing:border-box}
+.ptr{position:absolute;left:50%;top:-12px;margin-left:-10px;border:10px solid transparent;border-top:18px solid #ffd84a}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+/* ===== ПК: рамка вокруг игры, крупнее UI ===== */
+@media (min-width:760px){
+  #wrap{height:min(100vh - 64px,940px);margin:32px auto;border-radius:14px;overflow:hidden;box-shadow:0 0 0 3px #0a0705,0 0 0 6px var(--edge),0 0 0 8px #2d2218,0 34px 90px rgba(0,0,0,.65)}
+  #ui{font-size:11px;padding:22px 20px 36px;line-height:1.7}
+  #ui h1{font-size:20px;margin:6px 0 10px;text-shadow:2px 2px 0 #000}
+  #ui h2{font-size:12px;margin:22px 0 8px}
+  .row{padding:13px 12px;margin-bottom:9px;border-radius:10px}
+  .row small{font-size:8px}
+  .btn{font-size:11px;padding:13px 14px;border-bottom-width:5px}
+  .go{font-size:15px;padding:15px;margin:14px 0}
+  .perk{font-size:11px;padding:15px}
+  .ic{width:34px;height:34px;font-size:19px;border-radius:8px}
+  .ic.sp{width:26px;height:26px;margin:4px}
+  .wh{width:250px;height:250px;margin:24px auto}
+}
+@media (min-width:760px) and (max-height:700px){
+  #wrap{height:calc(100vh - 32px);margin:16px auto}
+}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="cv"></canvas><div id="ui"></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<script>
+(() => {
+'use strict';
+const { Engine, World, Bodies, Body, Events } = Matter;
+
+/* ===================== storage.js ===================== */
+const KEY = 'pickaxeDive_v1';
+const DEF = { coins: 0, up: { dmg: 0, hp: 0, luck: 0, mag: 0 }, skin: 'silver', skins: ['silver'], perks: [], deep: 0, best: 0, inv: [], eq: [] };
+let S = (() => {
+  try { const s = JSON.parse(localStorage.getItem(KEY) || '{}'); return Object.assign({}, DEF, s, { up: Object.assign({}, DEF.up, s.up) }); }
+  catch (e) { return JSON.parse(JSON.stringify(DEF)); }
+})();
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
+const MIG = { wood: 'silver', plasma: 'ender' }; // миграция старых скинов
+S.skin = MIG[S.skin] || S.skin; S.skins = [...new Set(S.skins.map(k => MIG[k] || k))]; if (!S.skins.includes('silver')) S.skins.push('silver');
+
+/* ===================== config ===================== */
+const W = 360, H = 640, CELL = 40, COLS = 9, ROWS = 50, TOP = 100, WORLD_H = TOP + ROWS * CELL;
+const STEP = 1000 / 60;
+const T = {
+  stone:   { hp: [100, 300],  col: '#7d7d85', dot: '#5b5b63', coin: [2, 5] },
+  coal:    { hp: [500, 1500], col: '#3b3b42', dot: '#111114', coin: [8, 18] },
+  ice:     { hp: [200, 400],  col: '#9fdcf2', dot: '#eafcff', coin: [3, 6], rest: 1.0 },
+  diamond: { hp: [800, 1200], col: '#2fb9b0', dot: '#b8fff6', coin: [40, 60] },
+  tnt:     { hp: [1, 1],      col: '#c8402e', dot: '#fff',    coin: [0, 0] },
+  bench:   { hp: [1, 1],      col: '#a8743c', dot: '#6d4a22', coin: [0, 0] },
+  spring:  { hp: [600, 600],  col: '#3fae5a', dot: '#b8ff9a', coin: [0, 0] },
+  mud:     { hp: [60, 120],   col: '#5a4126', dot: '#3a2815', coin: [1, 2] },
+  goldore: { hp: [900, 1500], col: '#8a6b1f', dot: '#ffd84a', coin: [25, 45] },
+  lava:    { hp: [400, 700],  col: '#c2451c', dot: '#ffb347', coin: [0, 0] },
+  spike:   { hp: [150, 250],  col: '#8a2c2c', dot: '#ffb3b3', coin: [3, 6] },
+  crystal: { hp: [150, 250],  col: '#b55cff', dot: '#f0d0ff', coin: [10, 20] },
+  chest:   { hp: [1, 1],      col: '#8a5a2b', dot: '#ffd84a', coin: [0, 0] }
+};
+const BIOMES = [
+  { name: 'Пещера',  bg: '#1b1613', gap: .24, coal: .12, ice: .04 },
+  { name: 'Ледник',  bg: '#10202a', gap: .22, coal: .06, ice: .32 },
+  { name: 'Рудник',  bg: '#1d1410', gap: .20, coal: .30, ice: .02 }
+];
+const SKINS_OLD = {
+  wood:    { n: 'Деревянная', head: '#c9c9c9', price: 0,    info: 'без бонусов',          dmg: 1,   coin: 1 },
+  gold:    { n: 'Золотая',    head: '#f2c14e', price: 400,  info: '+15% монет, магнит x1.6',           dmg: 1,   coin: 1.15 },
+  diamond: { n: 'Алмазная',   head: '#4be0d4', price: 1200, info: '+20% урона, шипы вдвое слабее',           dmg: 1.2, coin: 1 },
+  plasma:  { n: 'Плазменная', head: '#c46bff', price: 3000, info: '+30% урона, +10% монет, упругая (отскок .92)', dmg: 1.3, coin: 1.1 }
+};
+const SKINS = {
+  silver:   { n: 'Серебряная',  head: '#d5dbe3', price: 0,    info: 'без бонусов', dmg: 1, coin: 1 },
+  gold:     { n: 'Золотая',     head: '#f2c14e', price: 400,  info: '+15% монет, магнит x1.6', dmg: 1, coin: 1.15, mag: 1.6 },
+  lazurite: { n: 'Лазуритовая',  head: '#3d63d8', price: 800,  info: '+10% урона, упругая (.85)', dmg: 1.1, coin: 1, rest: .85 },
+  rubine:   { n: 'Рубиновая',   head: '#e0364a', price: 1300, info: '+25% урона', dmg: 1.25, coin: 1 },
+  izumrud:  { n: 'Изумрудная',  head: '#3ddc84', price: 2000, info: '+20% монет, +5% крита', dmg: 1, coin: 1.2, crit: .05 },
+  diamond:  { n: 'Алмазная',    head: '#4be0d4', price: 3000, info: '+20% урона, шипы вдвое слабее', dmg: 1.2, coin: 1, spike: .5 },
+  ender:    { n: 'Эндер',        head: '#b04cff', price: 5000, info: '+30% урона, +10% монет, упругая (.92)', dmg: 1.3, coin: 1.1, rest: .92 }
+};
+// Текстуры 13x13 лежат рядом с HTML (Название_PA.png). Если файла нет — рисуется упрощённая кирка цветом скина.
+const PA = { silver: 'Silver', gold: 'Gold', lazurite: 'Lazurite', rubine: 'Rubine', izumrud: 'Izumrud', diamond: 'Diamond', ender: 'Ender' };
+const IMG = {};
+for (const k in PA) {
+  const im = new Image();
+  im.onload = () => { IMG[k] = im; if (state === 'hub' && ui.style.display !== 'none') showHub(); }; // обновить хаб, когда текстура догрузилась
+  im.src = PA[k] + '_PA.png';
+}
+const UPS = {
+  dmg:  { n: 'Сила кирки', d: '+25% урона', base: 30, k: 1.6, max: 15 },
+  hp:   { n: 'Прочность',  d: '+25 макс. HP', base: 25, k: 1.55, max: 15 },
+  luck: { n: 'Удача',      d: 'крит и алмазы', base: 60, k: 1.8, max: 8 },
+  mag:  { n: 'Магнит руды', d: 'радиус сбора', base: 40, k: 1.7, max: 6 }
+};
+const PERKS = [
+  { id: 'mini',  n: 'Каждый 5-й удар вызывает мини-взрыв' },
+  { id: 'vamp',  n: 'Вампиризм: +1 HP за каждые 10 блоков' },
+  { id: 'rich',  n: 'Золотая лихорадка: монеты x1.25' },
+  { id: 'crit',  n: 'Меткий глаз: +10% к шансу крита' },
+  { id: 'tough', n: 'Закалка: каждый удар стоит на 1 HP меньше' },
+  { id: 'shield', n: 'Щит: 2 секунды неуязвимости после взрыва TNT' },
+  { id: 'berserk', n: 'Берсерк: урон x1.5, когда HP ниже 30%' },
+  { id: 'triple', n: 'Добивание: каждый 3-й удар по блоку x2.5' }
+];
+const has = id => S.perks.includes(id);
+const rnd = (a, b) => a + Math.random() * (b - a);
+const cost = k => Math.round(UPS[k].base * Math.pow(UPS[k].k, S.up[k]));
+const maxHp = () => 100 + 25 * S.up.hp;
+const dmgBase = () => 60 * (1 + .25 * S.up.dmg) * SKINS[S.skin].dmg * (has('mini') ? 1 : 1);
+const coinMul = () => SKINS[S.skin].coin * (has('rich') ? 1.25 : 1);
+
+/* ===================== physics.js ===================== */
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+cv.width = W; cv.height = H;
+const engine = Engine.create();
+engine.gravity.y = 1.6;                       // гравитация
+const GACC = .001 * engine.gravity.y * STEP * STEP; // ускорение (px/шаг^2) для прицела
+let gen, pick, run, bio = BIOMES[0], state = 'hub', aim = null, firstTry = true;
+const cam = { y: 0, z: 1, zt: 1 }, shk = { m: 0, x: 0, y: 0 };
+let fx = [], txt = [];
+
+function makePick() {
+  pick = Bodies.circle(W / 2, 50, 9, { restitution: SKINS[S.skin].rest || .8, friction: 0, frictionStatic: 0, frictionAir: .0004, density: .002, label: 'pick', isStatic: true });
+  World.add(engine.world, pick);
+}
+
+const ZONES = ['Верхние слои', 'Средние слои: грязь и пружины', 'Глубины: шипы и динамит'];
+const zoneOf = r => r < 16 ? 0 : r < 33 ? 1 : 2;
+const UI_IC = { dmg: '⛏', hp: '❤', luck: '🍀', mag: '🧲' };
+/* ===================== generator.js ===================== */
+function newRun() {
+  World.clear(engine.world, false);
+  bio = BIOMES[Math.floor(Math.random() * BIOMES.length)];
+  const wall = (x, y, w, h) => Bodies.rectangle(x, y, w, h, { isStatic: true, restitution: .8, friction: 0, label: 'wall' });
+  World.add(engine.world, [wall(-25, 100000, 50, 200000), wall(W + 25, 100000, 50, 200000), wall(W / 2, -25, W + 100, 50)]);
+  gen = (from, to) => {
+  const blocks = [];
+  for (let r = from; r < to; r++) {
+    const bc = (r % 8 === 6) ? Math.floor(Math.random() * COLS) : -1;
+    for (let c = 0; c < COLS; c++) {
+      let type = null;
+      if (c === bc || (r % 50 === 0 && c === 4)) type = 'bench';
+      else if (r % 50 === 0 && (c === 1 || c === 7)) type = 'crystal';
+      else if (Math.random() >= bio.gap) {
+        const q = Math.random();
+        const z = zoneOf(r), q2 = Math.random();
+        if (r > 8 && q < (.012 + .008 * S.up.luck) * (1 + z)) type = 'diamond';
+        else if (q < .08 + .03 * z) type = 'tnt';
+        else if (z >= 1 && q2 < .05) type = 'spring';
+        else if (z >= 1 && q2 < .12) type = 'mud';
+        else if (r > 8 && q2 > .953 && q2 <= .96) type = 'chest';
+        else if (r > 5 && q2 > .96) type = 'crystal';
+        else if (z >= 2 && q2 > .86) type = 'spike';
+        else if (q < .08 + bio.coal) type = 'coal';
+        else if (q < .08 + bio.coal + bio.ice) type = 'ice';
+        else type = 'stone';
+      }
+      if (!type) continue;
+      const t = T[type], hp = rnd(t.hp[0], t.hp[1]) * (1 + Math.min(r / ROWS, 3) * .8);
+      const b = { type, r, c, x: c * CELL + CELL / 2, y: TOP + r * CELL + CELL / 2, hp, max: hp, flash: 0,
+        sp: Array.from({ length: 4 }, () => [rnd(3, 32) | 0, rnd(3, 32) | 0, rnd(3, 6) | 0]) };
+      b.body = Bodies.rectangle(b.x, b.y, CELL, CELL, { isStatic: true, friction: 0, restitution: t.rest || .5, label: 'block' });
+      b.body.blk = b; blocks.push(b);
+    }
+  }
+  World.add(engine.world, blocks.map(b => b.body)); run.blocks.push(...blocks); run.rows = to;
+  };
+  makePick();
+  const mh = maxHp();
+  run = { hp: mh, max: mh, coins: 0, hits: 0, broken: 0, depth: 0, still: 0, blocks: [], pk: [], fuse: [], after: [], t: 0, rows: 2, spells: S.eq.map(u => S.inv.find(i => i.uid === u)).filter(Boolean).map(i => ({ id: i.id, r: i.r, cd: 0, max: 1, uid: i.uid })), gacha: null, fxs: null };
+  gen(2, 34);
+  cam.y = 0; cam.z = cam.zt = 1; fx = []; txt = [];
+}
+
+/* ===================== game.js: события ===================== */
+Events.on(engine, 'collisionStart', e => {
+  if (!run || state !== 'fly') return;
+  for (const p of e.pairs) {
+    const o = p.bodyA === pick ? p.bodyB : p.bodyB === pick ? p.bodyA : null;
+    if (o && o.blk) hit(o.blk);
+  }
+});
+
+function hit(b) {
+  if (b.type === 'tnt') return explode(b);
+  if (b.type === 'bench') return bench(b);
+  if (b.type === 'chest') return openChest(b);
+  if (b.type === 'spring') {
+    const dx = pick.position.x - b.x, dy = pick.position.y - b.y, d = Math.hypot(dx, dy) || 1;
+    run.after.push(() => Body.setVelocity(pick, { x: dx / d * 14, y: dy / d * 14 - 5 }));
+    b.flash = 1; float(b.x, b.y - 18, 'БОИНГ!', '#b8ff9a', 9); burst(b.x, b.y, '#b8ff9a', 8, 4); shake(3); return;
+  }
+  run.hits++;
+  const spd = Math.max(.6, Math.min(1.8, pick.speed / 10));
+  const crit = Math.random() < .05 + .03 * S.up.luck + (has('crit') ? .1 : 0) + (SKINS[S.skin].crit || 0);
+  b.n = (b.n || 0) + 1;
+  const tri = has('triple') && b.n % 3 === 0;
+  const mul = (crit ? 2 : 1) * (tri ? 2.5 : 1) * (has('berserk') && run.hp < run.max * .3 ? 1.5 : 1) * (run.buff && run.buff.k === 'dmg' ? 2 : 1);
+  damage(b, dmgBase() * spd * mul, crit || tri);
+  if (b.type === 'mud') run.after.push(() => Body.setVelocity(pick, { x: pick.velocity.x * .4, y: pick.velocity.y * .4 }));
+  let loss = Math.max(1, Math.round(1 + b.max / 180));
+  if (has('tough')) loss = Math.max(1, loss - 1);
+  if (b.type === 'mud') loss = 0;
+  if (b.type === 'spike') loss = Math.round(8 * (SKINS[S.skin].spike || 1));
+  loseHp(loss);
+  burst(pick.position.x, pick.position.y, b.type === 'ice' ? '#d8f6ff' : '#ffd36b', 4, 3); // искры
+  shake(Math.min(6, pick.speed / 3));
+  if (has('mini') && run.hits % 5 === 0) explode(b, true);
+}
+function damage(b, d, crit) {
+  if (!b.body) return;
+  b.hp -= d; b.flash = 1;
+  float(b.x + rnd(-8, 8), b.y - 12, Math.round(d), crit ? '#ff9f2e' : '#ffe066', crit ? 12 : 9);
+  if (b.hp <= 0) destroy(b);
+}
+function destroy(b) {
+  if (!b.body) return;
+  World.remove(engine.world, b.body); b.body = null; run.broken++;
+  burst(b.x, b.y, T[b.type].col, 10, 4);
+  if (b.type === 'crystal') crystalBuff();
+  const c = T[b.type].coin;
+  if (c[1] > 0) run.pk.push({ x: b.x, y: b.y, v: Math.max(1, Math.round(rnd(c[0], c[1]) * coinMul() * (run.buff && run.buff.k === 'gold' ? 2 : 1))), ph: Math.random() * 6 });
+  if (has('vamp') && run.broken % 10 === 0) { run.hp = Math.min(run.max, run.hp + 1); float(pick.position.x, pick.position.y - 14, '+1 HP', '#ff7a7a', 9); }
+}
+function loseHp(n) {
+  if (n <= 0) return;
+  if (run.shield > 0) { float(pick.position.x, pick.position.y - 12, 'БЛОК', '#9fdcf2', 9); return; }
+  run.hp -= n; float(pick.position.x + 10, pick.position.y - 10, '-' + n, '#ff5a4a', 9);
+  if (run.hp <= 0) { run.hp = 0; endRun(); }
+}
+function bench(b) {
+  if (b.used) return;
+  b.used = true;
+  run.max += 10; run.hp = Math.min(run.max, run.hp + Math.ceil(run.max * .4));
+  float(b.x, b.y - 18, 'РЕМОНТ! +10 MAX', '#7bd05a', 9);
+  burst(b.x, b.y, '#7bd05a', 14, 4);
+  run.after.push(() => Body.setVelocity(pick, { x: pick.velocity.x * .6, y: -15 })); // стрелка вверх подбрасывает
+}
+function explode(b, mini) {
+  const R = mini ? 75 : 105, D = mini ? 260 : 520, cx = b.x, cy = b.y;
+  if (!mini) destroy(b);
+  for (const o of run.blocks) {
+    if (!o.body || o === b) continue;
+    const d = Math.hypot(o.x - cx, o.y - cy);
+    if (d > R) continue;
+    if (o.type === 'tnt') { if (!o.fuse) { o.fuse = 1; run.fuse.push({ b: o, t: .12 }); } }
+    else if (o.type !== 'bench') damage(o, D * (1 - d / R * .5));
+  }
+  const dx = pick.position.x - cx, dy = pick.position.y - cy, d = Math.hypot(dx, dy) || 1;
+  if (d < R * 1.4) { const k = (mini ? 5 : 10) * (1 - d / (R * 1.6)); run.after.push(() => Body.setVelocity(pick, { x: pick.velocity.x + dx / d * k, y: pick.velocity.y + dy / d * k })); }
+  burst(cx, cy, '#ff9a2e', mini ? 14 : 30, 7); burst(cx, cy, '#fff2a8', mini ? 6 : 12, 5);
+  fx.push({ ring: 1, x: cx, y: cy, r: 6, life: .35, max: .35 });
+  if (has('shield') && !mini) run.shield = 2;
+  shake(mini ? 5 : 14); cam.zt = mini ? 1.04 : 1.12;
+}
+
+/* ===== сундуки и магии ===== */
+const RAR = [{ n: 'ОБЫЧНАЯ', c: '#b9c4cf', m: 1 }, { n: 'РЕДКАЯ', c: '#5aa8ff', m: 1.5 }, { n: 'ЭПИЧЕСКАЯ', c: '#c46bff', m: 2.2 }];
+const SPELLS = {
+  vortex: { n: 'Вихрь', ic: '🌀', cd: 8 },
+  aegis:  { n: 'Эгида', ic: '🛡', cd: 11 },
+  storm:  { n: 'Магнит-шторм', ic: '🧲', cd: 12 },
+  drill:  { n: 'Бур', ic: '⬇', cd: 6 }
+};
+function openChest(b) {
+  if (b.opened) return;
+  b.opened = true; b.t0 = performance.now();
+  burst(b.x, b.y, '#ffd84a', 22, 6); shake(4);
+  const dp = run.depth / 100;
+  const r = Math.random() < .06 + dp * .1 ? 2 : Math.random() < .3 + dp * .2 ? 1 : 0;
+  const id = Object.keys(SPELLS)[Math.floor(Math.random() * 4)];
+  let rar = r, note = '';
+  const it = { uid: Date.now() + '' + (Math.random() * 1e4 | 0), id, r }; S.inv.push(it); note = 'В ИНВЕНТАРЕ';
+  if (run.spells.length < 5) { run.spells.push({ id, r, cd: 0, max: 1, uid: it.uid }); S.eq.push(it.uid); note = 'ЭКИПИРОВАНА'; }
+  save();
+  run.coins += 20;
+  run.gacha = { id, r: rar, t: 0, note };
+}
+function cast(i) {
+  const s = run.spells[i];
+  if (!s || s.cd > 0 || run.gacha || state !== 'fly') return;
+  const m = RAR[s.r].m, px = pick.position.x, py = pick.position.y;
+  s.max = s.cd = SPELLS[s.id].cd / (1 + .15 * s.r);
+  if (s.id === 'vortex') {
+    const R = 120 * m;
+    for (const o of run.blocks) {
+      if (!o.body || ['bench', 'chest', 'spring'].includes(o.type)) continue;
+      const d = Math.hypot(o.x - px, o.y - py);
+      if (d < R) { if (o.type === 'tnt') explode(o); else damage(o, 500 * m * (1 - d / R * .5)); }
+    }
+    fx.push({ ring: 1, x: px, y: py, r: 6, life: .4, max: .4 }); burst(px, py, '#9fdcf2', 24, 7); shake(10);
+  } else if (s.id === 'aegis') {
+    run.shield = Math.max(run.shield || 0, 2.5 * m); run.hp = Math.min(run.max, run.hp + Math.round(4 * m));
+    burst(px, py, '#9fdcf2', 16, 4);
+  } else if (s.id === 'storm') {
+    const R = 320 * m;
+    run.pk = run.pk.filter(p => { if (Math.hypot(p.x - px, p.y - py) > R) return true; run.coins += p.v; float(p.x, p.y - 8, '+' + p.v, '#7bd05a', 9); return false; });
+    fx.push({ ring: 1, x: px, y: py, r: 6, life: .5, max: .5 }); burst(px, py, '#e0a8ff', 20, 6);
+  } else {
+    run.after.push(() => Body.setVelocity(pick, { x: pick.velocity.x * .3, y: 24 }));
+    run.buff = { k: 'dmg', t: 2 * m }; burst(px, py, '#ffd84a', 16, 5); shake(6);
+  }
+  run.fxs = { id: s.id, r: s.r, t: 0, dur: .6 };
+}
+function crystalBuff() {
+  const k = ['dmg', 'mag', 'gold'][Math.floor(Math.random() * 3)];
+  run.buff = { k, t: 8 };
+  float(pick.position.x, pick.position.y - 24, { dmg: 'УРОН x2!', mag: 'МАГНИТ x3!', gold: 'МОНЕТЫ x2!' }[k], '#e0a8ff', 10);
+}
+/* ===================== игровой цикл ===================== */
+function step() {
+  Engine.update(engine, STEP);
+  run.after.forEach(f => f()); run.after = [];
+  if (pick.speed > 26) Body.setVelocity(pick, { x: pick.velocity.x * 26 / pick.speed, y: pick.velocity.y * 26 / pick.speed });
+  run.t += STEP / 1000;
+  run.depth = Math.max(run.depth, Math.floor(Math.max(0, pick.position.y - TOP) / CELL));
+  const zn = zoneOf(run.depth);
+  if (zn !== run.zone) { run.zone = zn; if (zn > 0) zflash = 1; float(W / 2, pick.position.y - 36, ZONES[zn], '#ffffff', 9); }
+  if (run.shield > 0) run.shield -= STEP / 1000;
+  for (const s of run.spells) if (s.cd > 0) s.cd -= STEP / 1000;
+  if (run.buff && (run.buff.t -= STEP / 1000) <= 0) run.buff = null;
+  if (pick.position.y > TOP + (run.rows - 14) * CELL) gen(run.rows, run.rows + 16); // бесконечная шахта: новый чанк
+  const cut = cam.y - H * 1.5;
+  if (run.blocks.length > 220) run.blocks = run.blocks.filter(b => { if (b.y < cut) { if (b.body) World.remove(engine.world, b.body); return false; } return true; });
+  run.pk = run.pk.filter(p => p.y > cut);
+  const px = pick.position.x, py = pick.position.y, mr = (16 + 26 * S.up.mag) * (SKINS[S.skin].mag || 1) * (run.buff && run.buff.k === 'mag' ? 3 : 1);
+  for (let i = run.pk.length - 1; i >= 0; i--) {
+    const p = run.pk[i], d = Math.hypot(px - p.x, py - p.y);
+    if (d < mr) { p.x += (px - p.x) / d * Math.min(d, 5); p.y += (py - p.y) / d * Math.min(d, 5); }
+    if (d < 13) { run.coins += p.v; float(p.x, p.y - 8, '+' + p.v, '#7bd05a', 9); run.pk.splice(i, 1); }
+  }
+  for (let i = run.fuse.length - 1; i >= 0; i--) { const f = run.fuse[i]; f.t -= STEP / 1000; if (f.t <= 0) { run.fuse.splice(i, 1); if (f.b.body) explode(f.b); } }
+  run.still = pick.speed < .6 ? run.still + STEP / 1000 : 0;
+  if (run.still > 1.5 && state === 'fly') endRun(); // застряла
+}
+function visuals(dt) {
+  if (run) {
+    if (run.gacha && (run.gacha.t += dt) > 2.2) { run.gacha = null; acc = 0; }
+    if (run.fxs && (run.fxs.t += dt) > run.fxs.dur) run.fxs = null;
+  }
+  for (const b of run ? run.blocks : []) if (b.flash > 0) b.flash = Math.max(0, b.flash - dt * 6);
+  for (const p of fx) { p.life -= dt; if (!p.ring) { p.x += p.vx; p.y += p.vy; p.vy += .25; } else p.r += 220 * dt; }
+  fx = fx.filter(p => p.life > 0);
+  for (const t of txt) { t.life -= dt; t.y -= 24 * dt; }
+  txt = txt.filter(t => t.life > 0);
+  shk.m *= .9; shk.x = rnd(-1, 1) * shk.m; shk.y = rnd(-1, 1) * shk.m;
+  cam.zt += (1 - cam.zt) * .04; cam.z += (cam.zt - cam.z) * .15;
+  if (state === 'fly' && pick) for (let i = 0; i < (S.skin === 'ender' ? 2 : 1); i++) fx.push({ x: pick.position.x + rnd(-3, 3), y: pick.position.y + rnd(-3, 3), vx: 0, vy: -.1, col: SKINS[S.skin].head, s: rnd(2, S.skin === 'ender' ? 6 : 4), life: .28 });
+  if (pick && state !== 'hub') {
+    const ty = Math.max(0, pick.position.y - H * .38);
+    cam.y += (ty - cam.y) * .12;
+  }
+}
+const shake = m => { shk.m = Math.max(shk.m, m); };
+const float = (x, y, t, col, size) => txt.push({ x, y, t, col, size, life: .9 });
+function burst(x, y, col, n, sp) { for (let i = 0; i < n; i++) { const a = rnd(0, 6.28), s = rnd(.4, 1) * sp; fx.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 1, col, s: rnd(2, 6), life: rnd(.3, .8) }); } }
+
+let last = 0, acc = 0;
+function frame(t) {
+  const dt = Math.min(50, t - last || 16); last = t;
+  if (state === 'fly' && !run.gacha) { acc += dt; let n = 0; while (acc >= STEP && n < 5) { step(); acc -= STEP; n++; } if (n === 5) acc = 0; }
+  visuals(dt / 1000);
+  draw();
+  requestAnimationFrame(frame);
+}
+
+/* ===================== ввод (мышь + тач через Pointer Events) ===================== */
+const pos = e => { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height }; };
+addEventListener('keydown', e => { const i = +e.key - 1; if (state === 'fly' && run && i >= 0 && i < run.spells.length) cast(i); });
+cv.addEventListener('pointerdown', e => {
+  if (state === 'fly' && run) {
+    if (run.gacha) { if (run.gacha.t > .8) { run.gacha = null; acc = 0; } return; }
+    const p = pos(e), i = Math.floor((p.x - (W - run.spells.length * 50) / 2) / 50);
+    if (p.y > H - 58 && i >= 0 && i < run.spells.length) cast(i);
+    return;
+  }
+  if (state !== 'aim') return; cv.setPointerCapture(e.pointerId); const p = pos(e); aim = { sx: p.x, sy: p.y, cx: p.x, cy: p.y }; });
+cv.addEventListener('pointermove', e => { if (aim) { const p = pos(e); aim.cx = p.x; aim.cy = p.y; } });
+const release = () => {
+  if (!aim) return;
+  const vx = aim.sx - aim.cx, vy = aim.sy - aim.cy, len = Math.hypot(vx, vy);
+  aim = null;
+  if (len < 14) return;
+  const sp = Math.min(22, len * .12);
+  Body.setStatic(pick, false);
+  Body.setVelocity(pick, { x: vx / len * sp, y: vy / len * sp });
+  state = 'fly'; firstTry = false;
+};
+cv.addEventListener('pointerup', release);
+cv.addEventListener('pointercancel', () => { aim = null; });
+
+/* ===================== конец раунда ===================== */
+function endRun() {
+  if (state !== 'fly') return;
+  state = 'over';
+  const bonus = run.depth * 2;
+  S.coins += run.coins + bonus; S.best = Math.max(S.best, run.depth);
+  let perk = false;
+  if (run.depth >= 20) { S.deep++; perk = S.deep % 3 === 0; }
+  run.sum = { coins: run.coins, bonus, depth: run.depth, broken: run.broken };
+  save();
+  setTimeout(() => perk ? showPerks() : showHub(), 1100);
+}
+
+/* ===================== UI: хаб, магазин, перки ===================== */
+const ui = document.getElementById('ui');
+const showUI = html => { ui.innerHTML = html; ui.style.display = 'block'; ui.scrollTop = 0; };
+function showHub() {
+  state = 'hub';
+  const s = run && run.sum;
+  let h = `<h1>PICKAXE DIVE</h1><div>Монеты: <span class="ok">${S.coins}</span> &nbsp; Рекорд: ${S.best} м</div>`;
+  if (s) h += `<div style="margin-top:6px;color:var(--mut)">Раунд: ${s.depth} м, блоков ${s.broken}, монет ${s.coins} + бонус ${s.bonus}</div>`;
+  h += `<button class="btn go" data-a="start">В ШАХТУ</button><div style="display:flex;gap:8px"><button class="btn" style="flex:1" data-a="inv">ИНВЕНТАРЬ ${S.inv.length}</button><button class="btn" style="flex:1" data-a="upg">АПГРЕЙДЕР</button></div><h2>Улучшения</h2>`;
+  for (const k in UPS) {
+    const u = UPS[k], lv = S.up[k], mx = lv >= u.max, c = cost(k);
+    h += `<div class="row"><span class="ic">${UI_IC[k]}</span><div style="flex:1">${u.n} ур.${lv}<small>${u.d}</small><i class="bar"><b style="width:${lv / u.max * 100}%"></b></i></div><button class="btn" data-a="up" data-k="${k}" ${mx || S.coins < c ? 'disabled' : ''}>${mx ? 'МАКС' : c}</button></div>`;
+  }
+  h += `<h2>Кирки</h2>`;
+  for (const k in SKINS) {
+    const sk = SKINS[k], own = S.skins.includes(k);
+    h += `<div class="row ${S.skin === k ? 'sel' : ''}">${IMG[k] ? `<img class="ic sp" src="${PA[k]}_PA.png" style="background:none;width:26px;height:26px;image-rendering:pixelated">` : `<span class="ic sp" style="background:${sk.head}"></span>`}<div style="flex:1;color:${sk.head}">${sk.n}<small>${sk.info}</small></div><button class="btn" data-a="skin" data-k="${k}" ${!own && S.coins < sk.price ? 'disabled' : ''}>${S.skin === k ? 'ВЫБРАНА' : own ? 'ВЗЯТЬ' : sk.price}</button></div>`;
+  }
+  h += `<h2>Перки (новый за каждые 3 глубоких захода: ${S.deep % 3}/3)</h2>`;
+  h += S.perks.length ? S.perks.map(id => `<div class="row">${PERKS.find(p => p.id === id).n}</div>`).join('') : `<div style="color:var(--mut)">Пока нет. Копай глубже 20 м.</div>`;
+  showUI(h);
+}
+function showPerks() {
+  state = 'hub';
+  const pool = PERKS.filter(p => !has(p.id)).sort(() => Math.random() - .5).slice(0, 3);
+  if (!pool.length) return showHub();
+  showUI(`<h1>НОВЫЙ ПЕРК</h1><p>Три глубоких захода позади. Выбери один модификатор навсегда.</p>` + pool.map(p => `<button class="perk" data-a="perk" data-k="${p.id}">${p.n}</button>`).join(''));
+}
+/* ===== инвентарь и апгрейдер ===== */
+const UP = { uid: null, tgt: 0, prot: false, busy: false };
+const STEPS = [.6, .35]; // шанс повышения: обычная→редкая, редкая→эпическая
+const chance = (r, t) => { let c = 1; for (let k = r; k < t; k++) c *= STEPS[k]; return c; };
+const spRow = (it, btn) => `<div class="row"><span class="ic">${SPELLS[it.id].ic}</span><div style="flex:1;color:${RAR[it.r].c}">${SPELLS[it.id].n}<small>${RAR[it.r].n}</small></div>${btn}</div>`;
+function showInv(tab) {
+  tab = tab || 'sp';
+  let h = `<button class="btn" data-a="hub">← НАЗАД</button><h1 style="margin-top:12px">ИНВЕНТАРЬ</h1><div style="display:flex;gap:8px;margin-bottom:10px"><button class="btn" style="flex:1;opacity:${tab === 'sp' ? 1 : .5}" data-a="inv" data-k="sp">МАГИИ ${S.inv.length}</button><button class="btn" style="flex:1;opacity:${tab === 'pk' ? 1 : .5}" data-a="inv" data-k="pk">ПЕРКИ ${S.perks.length}</button></div>`;
+  if (tab === 'pk') h += S.perks.length ? S.perks.map(id => `<div class="row">${PERKS.find(p => p.id === id).n}</div>`).join('') : `<div style="color:var(--mut)">Перков пока нет. Один перк даётся за каждые 3 глубоких захода (глубже 20 м).</div>`;
+  else {
+    h += `<div style="color:var(--mut);margin-bottom:8px">В забег берутся до 5 экипированных: ${S.eq.length}/5</div>`;
+    h += S.inv.length ? [...S.inv].sort((a, b) => b.r - a.r).map(it => spRow(it, `<button class="btn" data-a="eq" data-k="${it.uid}" ${!S.eq.includes(it.uid) && S.eq.length >= 5 ? 'disabled' : ''}>${S.eq.includes(it.uid) ? 'СНЯТЬ' : 'ВЗЯТЬ'}</button>`)).join('') : `<div style="color:var(--mut)">Пока пусто. Магии выпадают из сундуков глубже 8 м.</div>`;
+  }
+  showUI(h);
+}
+function showUpg(msg) {
+  const it = S.inv.find(i => i.uid === UP.uid);
+  if (!it) UP.uid = null;
+  let h = `<button class="btn" data-a="hub">← НАЗАД</button><h1 style="margin-top:12px">АПГРЕЙДЕР</h1><div>Монеты: <span class="ok">${S.coins}</span></div>`;
+  if (msg) h += `<p style="color:var(--acc)">${msg}</p>`;
+  const list = S.inv.filter(i => i.r < 2);
+  h += `<h2>Выбери магию</h2>` + (list.length ? list.map(i => spRow(i, `<button class="btn" data-a="pick" data-k="${i.uid}">${UP.uid === i.uid ? 'ВЫБРАНА' : 'ВЫБРАТЬ'}</button>`)).join('') : `<div style="color:var(--mut)">Нет магий, которые можно улучшить.</div>`);
+  if (it && it.r < 2) {
+    if (UP.tgt <= it.r) UP.tgt = it.r + 1;
+    const st = UP.tgt - it.r, ch = chance(it.r, UP.tgt), fee = 40 * st + (UP.prot ? 100 * st : 0);
+    h += `<h2>Целевая редкость</h2><div style="display:flex;gap:8px">`;
+    for (let t = it.r + 1; t <= 2; t++) h += `<button class="btn" style="flex:1;opacity:${UP.tgt === t ? 1 : .5}" data-a="tgt" data-k="${t}">${RAR[t].n} ${Math.round(chance(it.r, t) * 100)}%</button>`;
+    h += `</div><div class="wh"><div class="wheel" id="wheel" style="background:conic-gradient(#3fae5a 0 ${ch * 360}deg,#a83a2e ${ch * 360}deg 360deg)"></div><div class="ptr"></div></div>`;
+    h += `<button class="btn" style="width:100%;margin-bottom:8px" data-a="prot">ЗАЩИТА ОТ ПОТЕРИ: ${UP.prot ? 'ВКЛ' : 'ВЫКЛ'} (+${100 * st})</button>`;
+    h += `<button class="btn go" data-a="spin" ${S.coins < fee ? 'disabled' : ''}>КРУТИТЬ ЗА ${fee}</button><small style="color:var(--mut)">Зелёная зона: шанс ${Math.round(ch * 100)}%. Провал без защиты уничтожает магию.</small>`;
+  }
+  const sc = ui.scrollTop; showUI(h); ui.scrollTop = sc;
+}
+function spin() {
+  const it = S.inv.find(i => i.uid === UP.uid);
+  if (!it || UP.busy) return;
+  const st = UP.tgt - it.r, ch = chance(it.r, UP.tgt), fee = 40 * st + (UP.prot ? 100 * st : 0), g = ch * 360;
+  if (S.coins < fee) return;
+  UP.busy = true; S.coins -= fee; save();
+  const ok = Math.random() < ch, phi = ok ? rnd(g * .1, g * .9) : rnd(g + (360 - g) * .05, 360 - (360 - g) * .05);
+  const w = document.getElementById('wheel');
+  w.style.transition = 'transform 3.8s cubic-bezier(.12,.7,.1,1)'; void w.offsetWidth; w.style.transform = `rotate(${2160 - phi}deg)`;
+  setTimeout(() => {
+    UP.busy = false; let msg;
+    if (ok) { it.r = UP.tgt; msg = `УСПЕХ! ${SPELLS[it.id].n}: ${RAR[it.r].n}`; }
+    else if (UP.prot) msg = 'ПРОВАЛ, но защита сохранила магию';
+    else { S.inv = S.inv.filter(i => i !== it); S.eq = S.eq.filter(u => u !== it.uid); UP.uid = null; msg = 'ПРОВАЛ. Магия потеряна'; }
+    save(); showUpg(msg);
+  }, 4100);
+}
+ui.addEventListener('click', e => {
+  const b = e.target.closest('[data-a]'); if (!b || b.disabled) return;
+  const a = b.dataset.a, k = b.dataset.k;
+  if (UP.busy) return;
+  if (a === 'hub') return showHub();
+  if (a === 'inv') return showInv(k);
+  if (a === 'upg') { UP.tgt = 0; return showUpg(); }
+  if (a === 'eq') { if (S.eq.includes(k)) S.eq = S.eq.filter(u => u !== k); else if (S.eq.length < 5) S.eq.push(k); save(); return showInv('sp'); }
+  if (a === 'pick') { UP.uid = k; UP.tgt = 0; return showUpg(); }
+  if (a === 'tgt') { UP.tgt = +k; return showUpg(); }
+  if (a === 'prot') { UP.prot = !UP.prot; return showUpg(); }
+  if (a === 'spin') return spin();
+  if (a === 'start') { ui.style.display = 'none'; newRun(); state = 'aim'; return; }
+  if (a === 'up') { const c = cost(k); if (S.coins >= c && S.up[k] < UPS[k].max) { S.coins -= c; S.up[k]++; } }
+  if (a === 'skin') { if (!S.skins.includes(k) && S.coins >= SKINS[k].price) { S.coins -= SKINS[k].price; S.skins.push(k); } if (S.skins.includes(k)) S.skin = k; }
+  if (a === 'perk') { S.perks.push(k); }
+  save(); showHub();
+});
+
+/* ===================== рендер ===================== */
+function pickaxe(x, y, rot) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+  const hd = SKINS[S.skin].head;
+  if (S.skin === 'ender') { ctx.shadowColor = hd; ctx.shadowBlur = 10; }
+  const im = IMG[S.skin];
+  if (im) { ctx.imageSmoothingEnabled = false; ctx.drawImage(im, -17, -17, 34, 34); ctx.restore(); return; }
+  ctx.fillStyle = '#5a3a1a'; ctx.fillRect(-2, -5, 4, 18);
+  ctx.fillStyle = '#222'; ctx.fillRect(-13, -9, 26, 6);
+  ctx.fillStyle = hd; ctx.fillRect(-12, -8, 24, 4); ctx.fillRect(-12, -6, 4, 4); ctx.fillRect(8, -6, 4, 4);
+  ctx.restore();
+}
+function drawBlock(b) {
+  const t = T[b.type], x = b.x - CELL / 2, y = b.y - CELL / 2;
+  if (GLOW[b.type]) { ctx.fillStyle = GLOW[b.type].replace('A', (.12 + .08 * Math.sin(performance.now() / 300 + b.x)).toFixed(2)); ctx.fillRect(x - 5, y - 5, CELL + 10, CELL + 10); }
+  ctx.fillStyle = b.type === 'bench' && b.used ? '#6a5b4a' : t.col; ctx.fillRect(x, y, CELL, CELL);
+  ctx.fillStyle = t.dot;
+  if (b.type !== 'tnt' && b.type !== 'bench') for (const s of b.sp) ctx.fillRect(x + s[0], y + s[1], s[2], s[2]);
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(x, y + CELL - 3, CELL, 3); ctx.fillRect(x + CELL - 3, y, 3, CELL);
+  ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.fillRect(x, y, CELL, 2); ctx.fillRect(x, y, 2, CELL);
+  if (b.type === 'tnt') { ctx.fillStyle = '#f1e3c4'; ctx.fillRect(x, y + 14, CELL, 12); ctx.fillStyle = '#222'; ctx.font = '7px "Press Start 2P",monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('TNT', b.x, b.y + 1); }
+  if (b.type === 'bench') {
+    ctx.fillStyle = '#6d4a22'; ctx.fillRect(x + 2, y + 2, CELL - 4, 6);
+    ctx.fillStyle = b.used ? '#8c7d68' : '#ffe066';
+    const o = b.used ? 0 : Math.sin(performance.now() / 200) * 2;
+    ctx.beginPath(); ctx.moveTo(b.x, y + 12 + o); ctx.lineTo(b.x + 11, y + 28 + o); ctx.lineTo(b.x + 4, y + 28 + o); ctx.lineTo(b.x + 4, y + 35 + o); ctx.lineTo(b.x - 4, y + 35 + o); ctx.lineTo(b.x - 4, y + 28 + o); ctx.lineTo(b.x - 11, y + 28 + o); ctx.fill();
+  }
+  if (b.type === 'spring') { ctx.fillStyle = '#1f6b34'; ctx.fillRect(x + 6, y + 8, 28, 4); ctx.fillRect(x + 6, y + 16, 28, 4); ctx.fillRect(x + 6, y + 24, 28, 4); }
+  if (b.type === 'spike') { ctx.fillStyle = '#ffd0d0'; for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.moveTo(x + i * 10 + 1, y + 24); ctx.lineTo(x + i * 10 + 6, y + 8); ctx.lineTo(x + i * 10 + 11, y + 24); ctx.fill(); } }
+  if (b.type === 'crystal') { ctx.fillStyle = `rgba(255,255,255,${.4 + .3 * Math.sin(performance.now() / 200 + b.x)})`; ctx.fillRect(x + 16, y + 8, 6, 24); ctx.fillRect(x + 8, y + 16, 22, 6); }
+  if (b.type === 'chest') { const o = b.opened ? Math.min(1, (performance.now() - b.t0) / 400) : 0; ctx.fillStyle = '#5a3412'; ctx.fillRect(x + 4, y + 14, 32, 22); ctx.fillStyle = '#c98a3a'; ctx.fillRect(x + 6, y + 16, 28, 18); ctx.fillStyle = '#ffd84a'; ctx.fillRect(x + 17, y + 20, 6, 8); ctx.fillStyle = '#7a4a1c'; ctx.fillRect(x + 4, y + 6 - o * 8, 32, 10); if (b.opened) { ctx.fillStyle = `rgba(255,240,160,${.6 * (1 - o * .5)})`; ctx.fillRect(x + 8, y + 2 - o * 16, 24, 14 + o * 8); } }
+  const dmg = 1 - b.hp / b.max;
+  if (dmg > .05 && b.type !== 'tnt') { ctx.fillStyle = 'rgba(0,0,0,.55)'; const n = Math.ceil(dmg * 4); for (let i = 0; i < n; i++) ctx.fillRect(x + 6 + i * 8, y + 4 + (i % 2) * 14, 3, 18); }
+  if (b.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${b.flash * .6})`; ctx.fillRect(x, y, CELL, CELL); }
+}
+function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false;
+  ctx.fillStyle = bio.bg; ctx.fillRect(0, 0, W, H);
+  if (!run) return;
+  parallax();
+  ctx.translate(W / 2, H / 2); ctx.scale(cam.z, cam.z); ctx.translate(-W / 2 + shk.x, -H / 2 - cam.y + shk.y);
+  ctx.fillStyle = 'rgba(255,255,255,.06)';
+  const r0 = Math.max(0, Math.floor((cam.y - TOP) / CELL / 5) * 5);
+  for (let r = r0; r <= r0 + 20; r += 5) { ctx.fillRect(0, TOP + r * CELL, W, 1); }
+  ctx.font = '7px "Press Start 2P",monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillStyle = 'rgba(255,255,255,.25)';
+  for (let r = Math.max(5, r0); r <= r0 + 20; r += 5) ctx.fillText(r + ' м', 4, TOP + r * CELL + 3);
+  const y0 = cam.y - 60, y1 = cam.y + H + 60;
+  for (const b of run.blocks) if (b.body && b.y > y0 && b.y < y1) drawBlock(b);
+  for (const p of run.pk) { const o = Math.sin(performance.now() / 150 + p.ph) * 2; ctx.fillStyle = '#b58a12'; ctx.fillRect(p.x - 4, p.y - 4 + o, 8, 8); ctx.fillStyle = '#ffd84a'; ctx.fillRect(p.x - 3, p.y - 3 + o, 5, 5); }
+  // кирка
+  const px = pick.position.x, py = pick.position.y;
+  if (state === 'aim' && aim) {
+    const vx = aim.sx - aim.cx, vy = aim.sy - aim.cy, len = Math.hypot(vx, vy);
+    if (len > 14) {
+      const sp = Math.min(22, len * .12); let x = px, y = py, ux = vx / len * sp, uy = vy / len * sp;
+      ctx.fillStyle = '#fff';
+      for (let i = 0; i < 46; i++) { ux; uy += GACC; x += ux; y += uy; if (x < 9 || x > W - 9) { ux = -ux * .8; x = Math.max(9, Math.min(W - 9, x)); } if (i % 3 === 0) ctx.fillRect(x - 1.5, y - 1.5, 3, 3); }
+    }
+  }
+  if (state === 'aim') run.rot = performance.now() / 400;
+  else if (state === 'fly') run.rot = (run.rot || 0) + .08 + pick.speed * .012;
+  if (run.shield > 0) { ctx.strokeStyle = 'rgba(159,220,242,.85)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(px, py, 17, 0, 6.28); ctx.stroke(); }
+  pickaxe(px, py, run.rot || 0);
+  for (const p of fx) {
+    if (p.ring) { ctx.strokeStyle = `rgba(255,220,120,${p.life / p.max})`; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.28); ctx.stroke(); }
+    else { ctx.globalAlpha = Math.min(1, p.life * 2.5); ctx.fillStyle = p.col; ctx.fillRect(p.x, p.y, p.s, p.s); ctx.globalAlpha = 1; }
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineWidth = 3; ctx.strokeStyle = '#000';
+  for (const t of txt) { ctx.font = `${t.size}px "Press Start 2P",monospace`; ctx.globalAlpha = Math.min(1, t.life * 2); ctx.strokeText(t.t, t.x, t.y); ctx.fillStyle = t.col; ctx.fillText(t.t, t.x, t.y); ctx.globalAlpha = 1; }
+  hud();
+}
+let vig, vigRed, grainCv, zflash = 0;
+const GLOW = { crystal: 'rgba(224,168,255,A)', diamond: 'rgba(120,255,240,A)', spring: 'rgba(184,255,154,A)', chest: 'rgba(255,216,74,A)' };
+const TINTS = [[0, 255, 170, 90, .1], [20, 60, 45, 30, .32], [45, 40, 90, 210, .24]]; // тёплый верх, тусклая середина, холодные глубины
+function tint(d) {
+  if (d >= 45) return TINTS[2].slice(1);
+  const a = d >= 20 ? TINTS[1] : TINTS[0], b = d >= 20 ? TINTS[2] : TINTS[1];
+  const k = Math.max(0, Math.min(1, (d - a[0]) / (b[0] - a[0])));
+  return a.slice(1).map((v, i) => v + (b[i + 1] - v) * k);
+}
+function parallax() { // два слоя далёких стен + цвет зоны
+  for (const [sp, al, sz] of [[.25, .07, 90], [.5, .1, 56]]) {
+    const off = cam.y * sp, i0 = Math.floor(off / sz);
+    ctx.fillStyle = `rgba(255,255,255,${al})`;
+    for (let i = i0; i < i0 + H / sz + 2; i++) {
+      const h = Math.sin(i * 12.9898 + sz) * 43758.5453, f = h - Math.floor(h), w = 20 + f * 60;
+      ctx.fillRect(((f * 997) % 1) * (W - w), i * sz - off, w, 8 + f * 14);
+    }
+  }
+  const t = tint(cam.y / CELL);
+  ctx.fillStyle = `rgba(${t[0] | 0},${t[1] | 0},${t[2] | 0},${t[3]})`; ctx.fillRect(0, 0, W, H);
+}
+function post() { // свет зоны, виньетка, зерно, красная пульсация, вспышка зоны
+  const t = tint(cam.y / CELL);
+  ctx.fillStyle = `rgba(${t[0] | 0},${t[1] | 0},${t[2] | 0},${t[3] * .5})`; ctx.fillRect(0, 0, W, H);
+  if (!vig) {
+    vig = ctx.createRadialGradient(W / 2, H / 2, H * .35, W / 2, H / 2, H * .72); vig.addColorStop(0, 'rgba(0,0,0,0)'); vig.addColorStop(1, 'rgba(0,0,0,.55)');
+    vigRed = ctx.createRadialGradient(W / 2, H / 2, H * .3, W / 2, H / 2, H * .7); vigRed.addColorStop(0, 'rgba(255,40,30,0)'); vigRed.addColorStop(1, 'rgba(255,40,30,.8)');
+    grainCv = document.createElement('canvas'); grainCv.width = grainCv.height = 64;
+    const g = grainCv.getContext('2d'); for (let i = 0; i < 700; i++) { g.fillStyle = Math.random() < .5 ? '#fff' : '#000'; g.fillRect(Math.random() * 64 | 0, Math.random() * 64 | 0, 1, 1); }
+  }
+  ctx.fillStyle = vig; ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = .07;
+  for (let x = -64; x < W; x += 64) for (let y = -64; y < H; y += 64) ctx.drawImage(grainCv, x + (Math.random() * 64 | 0), y + (Math.random() * 64 | 0));
+  ctx.globalAlpha = 1;
+  if (state === 'fly' && (run.hp < run.max * .3 || run.still > .8)) { ctx.globalAlpha = .3 + .5 * (.5 + .5 * Math.sin(performance.now() / 160)); ctx.fillStyle = vigRed; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+  if (zflash > 0) { ctx.fillStyle = `rgba(255,255,255,${zflash * .35})`; ctx.fillRect(0, 0, W, H); zflash = Math.max(0, zflash - .04); }
+}
+function slots() { // кнопки магий
+  if (!run || !run.spells.length) return;
+  const x0 = (W - run.spells.length * 50) / 2 + 2;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  run.spells.forEach((s, i) => {
+    const x = x0 + i * 50, y = H - 54, rdy = s.cd <= 0;
+    ctx.fillStyle = 'rgba(10,8,6,.75)'; ctx.fillRect(x, y, 46, 46);
+    ctx.strokeStyle = RAR[s.r].c; ctx.lineWidth = rdy ? 3 : 1.5; ctx.strokeRect(x + 1, y + 1, 44, 44);
+    ctx.globalAlpha = rdy ? 1 : .4; ctx.font = '22px sans-serif'; ctx.fillText(SPELLS[s.id].ic, x + 23, y + 24); ctx.globalAlpha = 1;
+    if (!rdy) { ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(x, y, 46, 46 * s.cd / s.max); ctx.fillStyle = '#fff'; ctx.font = '8px "Press Start 2P",monospace'; ctx.fillText(Math.ceil(s.cd), x + 23, y + 24); }
+    else if (Math.sin(performance.now() / 200) > .6) { ctx.fillStyle = 'rgba(255,255,255,.15)'; ctx.fillRect(x, y, 46, 46); }
+    ctx.fillStyle = '#fff'; ctx.font = '7px "Press Start 2P",monospace'; ctx.fillText(i + 1, x + 7, y + 7);
+  });
+}
+function overlays() { // «гача-вау»: открытие сундука и активация магии
+  const g = run.gacha, o = g || run.fxs;
+  if (!o) return;
+  const big = !!g, dur = big ? 2.2 : o.dur, tt = o.t, s = SPELLS[o.id], col = RAR[o.r].c;
+  const a = Math.max(0, Math.min(1, tt / (big ? .3 : .1), (dur - tt) / .3));
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = `rgba(0,0,0,${a * (big ? .8 : .3)})`; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.translate(W / 2, H * .42);
+  if (big) {
+    ctx.save(); ctx.rotate(tt * .8); ctx.fillStyle = col; ctx.globalAlpha = a * .3;
+    for (let i = 0; i < 12; i++) { ctx.rotate(Math.PI / 6); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-20, -280); ctx.lineTo(20, -280); ctx.fill(); }
+    ctx.restore();
+    ctx.fillStyle = col; ctx.globalAlpha = a;
+    for (let i = 0; i < 16; i++) { const an = i * .39 + tt, rd = 50 + (tt * 110 + i * 17) % 130; ctx.fillRect(Math.cos(an) * rd, Math.sin(an) * rd, 3, 3); }
+  }
+  const p = Math.min(1, tt / (big ? .35 : .15)), sc = (big ? 3 : 2) * p * (1 + .35 * Math.sin(p * Math.PI));
+  ctx.globalAlpha = a * .55; ctx.fillStyle = col; ctx.beginPath(); ctx.arc(0, 0, 18 * sc, 0, 6.28); ctx.fill();
+  ctx.globalAlpha = a; ctx.font = `${22 * sc}px sans-serif`; ctx.fillText(s.ic, 0, 0);
+  const ty = big ? 94 : 78;
+  ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.fillStyle = '#fff'; ctx.font = '13px "Press Start 2P",monospace';
+  ctx.strokeText(s.n, 0, ty); ctx.fillText(s.n, 0, ty);
+  if (big) {
+    ctx.font = '9px "Press Start 2P",monospace'; ctx.fillStyle = col; ctx.fillText(RAR[o.r].n + (g.note ? ' / ' + g.note : ''), 0, 122);
+    ctx.fillStyle = '#ccc'; ctx.fillText('кнопки внизу или клавиши 1-5', 0, 148);
+    if (tt > .8) ctx.fillText('тап — продолжить', 0, 168);
+  }
+  ctx.restore(); ctx.globalAlpha = 1;
+}
+function hud() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  post();
+  ctx.font = '9px "Press Start 2P",monospace'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(W / 2 - 74, 6, 148, 26);
+  ctx.fillStyle = '#3a1512'; ctx.fillRect(W / 2 - 68, 22, 136, 6);
+  const f = Math.max(0, run.hp) / run.max;
+  ctx.fillStyle = f > .3 ? '#d9453a' : '#ff8a3d'; ctx.fillRect(W / 2 - 68, 22, 136 * f, 6);
+  ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 1; ctx.strokeRect(W / 2 - 68.5, 21.5, 137, 7);
+  ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.fillText('♥ ' + Math.ceil(run.hp) + '/' + run.max, W / 2, 14);
+  if (run.buff) { ctx.fillStyle = '#e0a8ff'; ctx.font = '8px "Press Start 2P",monospace'; ctx.fillText({ dmg: 'УРОН x2', mag: 'МАГНИТ x3', gold: 'МОНЕТЫ x2' }[run.buff.k] + ' ' + Math.ceil(run.buff.t), W / 2, 42); ctx.font = '9px "Press Start 2P",monospace'; }
+  ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(6, 6, 84, 18);
+  ctx.fillStyle = '#ffd84a'; ctx.fillRect(11, 11, 8, 8); ctx.fillText(run.coins, 25, 15);
+  ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(W - 90, 6, 84, 18);
+  ctx.fillStyle = '#9fdcf2'; ctx.fillText('↓' + run.depth + ' м', W - 11, 15);
+  ctx.fillStyle = 'rgba(255,255,255,.15)'; ctx.fillRect(W - 5, 30, 3, H - 40);
+  ctx.fillStyle = '#ffd84a'; ctx.fillRect(W - 6, 30 + (H - 40) * (run.depth % 50) / 50, 5, 5);
+  if (state === 'aim') {
+    ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.font = '8px "Press Start 2P",monospace';
+    ctx.fillText(bio.name, W / 2, 46);
+    if (firstTry) { ctx.fillText('Потяни вверх от кирки', W / 2, H - 44); ctx.fillText('и отпусти для броска', W / 2, H - 28); }
+  }
+  if (state === 'over') { ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 4; ctx.font = '14px "Press Start 2P",monospace'; ctx.strokeText(run.hp <= 0 ? 'КИРКА СЛОМАНА' : 'ЗАСТРЯЛА', W / 2, H / 2); ctx.fillText(run.hp <= 0 ? 'КИРКА СЛОМАНА' : 'ЗАСТРЯЛА', W / 2, H / 2); }
+  slots(); overlays();
+}
+
+/* ===================== старт ===================== */
+newRun();
+showHub();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
